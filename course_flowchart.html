@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<meta charset="UTF-8">
+<title>תרשים תלויות קורסים - הנדסת תעשייה וניהול</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+        height: 100%;
+        overflow: hidden;
+    }
+    body {
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background: #f5f5f5;
+        direction: rtl;
+        display: flex;
+        flex-direction: column;
+    }
+    .header {
+        background: linear-gradient(135deg, #2F5496, #1a3a6b);
+        color: white;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    }
+    .header h1 { font-size: 24px; margin-bottom: 5px; }
+    .header p { font-size: 14px; opacity: 0.8; }
+    .legend {
+        display: flex;
+        justify-content: center;
+        gap: 15px;
+        padding: 15px;
+        background: white;
+        border-bottom: 1px solid #ddd;
+        flex-wrap: wrap;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+    }
+    .legend-color {
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+    }
+    .chart-container {
+        padding: 0;
+        overflow: hidden;
+        position: relative;
+        flex: 1;
+        background: #f5f5f5;
+        cursor: grab;
+    }
+    .chart-container.dragging {
+        cursor: grabbing;
+    }
+    .chart-container svg {
+        display: block;
+        transform-origin: 0 0;
+        /* will be transformed via JS */
+    }
+    .zoom-controls {
+        position: fixed;
+        bottom: 20px;
+        right: 310px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        z-index: 200;
+    }
+    .zoom-controls button {
+        width: 38px;
+        height: 38px;
+        border: 1px solid #ccc;
+        background: white;
+        border-radius: 6px;
+        font-size: 20px;
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #333;
+        transition: background 0.15s;
+    }
+    .zoom-controls button:hover {
+        background: #e8e8e8;
+    }
+    .zoom-level {
+        text-align: center;
+        font-size: 11px;
+        color: #777;
+        padding: 2px 0;
+    }
+    .course-node {
+        cursor: pointer;
+    }
+    .course-node rect {
+        transition: stroke-width 0.2s, filter 0.2s;
+    }
+    .course-node:hover rect {
+        stroke-width: 3;
+        filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));
+    }
+    .course-node text {
+        pointer-events: none;
+    }
+    /* Edges hidden by default */
+    .edge {
+        fill: none;
+        stroke: #999;
+        stroke-width: 1.5;
+        marker-end: url(#arrowhead);
+        opacity: 0;
+        transition: opacity 0.25s, stroke 0.25s, stroke-width 0.25s;
+        pointer-events: none;
+    }
+    /* Pinned course edges (click) */
+    .edge.pinned {
+        opacity: 1;
+        stroke: #e74c3c;
+        stroke-width: 2.5;
+        marker-end: url(#arrowhead-pinned);
+        pointer-events: auto;
+    }
+    /* Hovered course edges */
+    .edge.hovered {
+        opacity: 0.8;
+        stroke: #3498db;
+        stroke-width: 2;
+        marker-end: url(#arrowhead-hover);
+        pointer-events: auto;
+    }
+    /* Pinned node glow */
+    .course-node.pinned rect {
+        stroke: #e74c3c !important;
+        stroke-width: 3.5 !important;
+        filter: drop-shadow(0 0 8px rgba(231,76,60,0.5)) !important;
+    }
+    /* Related node (prereq/dependent of pinned) subtle highlight */
+    .course-node.related rect {
+        stroke-width: 2.5;
+        filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25));
+    }
+    /* Hovered-related node */
+    .course-node.hover-related rect {
+        stroke-width: 2.5;
+        filter: drop-shadow(0 2px 6px rgba(52,152,219,0.35));
+    }
+    .info-panel {
+        position: fixed;
+        bottom: 20px;
+        left: 20px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        max-width: 320px;
+        display: none;
+        z-index: 100;
+        direction: rtl;
+    }
+    .info-panel h3 { margin-bottom: 8px; color: #2F5496; font-size: 15px; }
+    .info-panel .prereqs { font-size: 13px; color: #555; line-height: 1.6; }
+    .pinned-list {
+        position: fixed;
+        bottom: 20px;
+        left: 350px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 12px 15px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        max-width: 250px;
+        display: none;
+        z-index: 100;
+        direction: rtl;
+    }
+    .pinned-list h4 { margin-bottom: 6px; color: #e74c3c; font-size: 13px; }
+    .pinned-list .pinned-item {
+        font-size: 12px;
+        color: #333;
+        padding: 2px 0;
+        cursor: pointer;
+    }
+    .pinned-list .pinned-item:hover { text-decoration: underline; }
+    .pinned-list .clear-btn {
+        margin-top: 8px;
+        font-size: 11px;
+        color: #999;
+        cursor: pointer;
+        border-top: 1px solid #eee;
+        padding-top: 6px;
+    }
+    .pinned-list .clear-btn:hover { color: #e74c3c; }
+    .instructions {
+        text-align: center;
+        padding: 10px;
+        color: #777;
+        font-size: 13px;
+        background: white;
+        border-bottom: 1px solid #eee;
+    }
+    /* Critical Paths Panel */
+    .paths-panel {
+        position: fixed;
+        top: 130px;
+        right: 20px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        width: 280px;
+        max-height: calc(100vh - 200px);
+        z-index: 150;
+        direction: rtl;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .paths-panel-header {
+        padding: 10px 14px;
+        background: linear-gradient(135deg, #2F5496, #1a3a6b);
+        color: white;
+        font-size: 13px;
+        font-weight: bold;
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .paths-panel-header .toggle { font-size: 11px; opacity: 0.8; }
+    .paths-panel-body {
+        overflow-y: auto;
+        max-height: calc(100vh - 260px);
+        padding: 6px 0;
+    }
+    .paths-panel.collapsed .paths-panel-body { display: none; }
+    .path-item {
+        padding: 8px 14px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+        transition: background 0.15s;
+    }
+    .path-item:hover {
+        background: #f0f4ff;
+    }
+    .path-item.active {
+        background: #e8f0fe;
+        border-right: 3px solid #2F5496;
+    }
+    .path-item .path-rank {
+        font-size: 11px;
+        color: #999;
+        margin-bottom: 2px;
+    }
+    .path-item .path-name {
+        font-size: 12px;
+        font-weight: bold;
+        color: #333;
+        margin-bottom: 3px;
+    }
+    .path-item .path-courses {
+        font-size: 10px;
+        color: #777;
+        line-height: 1.5;
+    }
+    .path-item .path-stats {
+        display: flex;
+        gap: 10px;
+        margin-top: 4px;
+        font-size: 10px;
+        color: #2F5496;
+    }
+    .path-item .path-stats span {
+        background: #e8f0fe;
+        padding: 1px 6px;
+        border-radius: 3px;
+    }
+    /* Critical path edge highlight */
+    .edge.critical-path {
+        opacity: 1 !important;
+        stroke: #ff6f00 !important;
+        stroke-width: 3.5 !important;
+        marker-end: url(#arrowhead-critical) !important;
+        pointer-events: auto;
+    }
+    .course-node.on-critical-path rect {
+        stroke: #ff6f00 !important;
+        stroke-width: 3 !important;
+        filter: drop-shadow(0 0 10px rgba(255,111,0,0.5)) !important;
+    }
+    /* Semester filter bar */
+    .filter-bar {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 15px;
+        padding: 8px 15px;
+        background: white;
+        border-bottom: 1px solid #ddd;
+        flex-wrap: wrap;
+    }
+    .filter-bar label {
+        font-size: 13px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        user-select: none;
+    }
+    .filter-bar input[type="checkbox"] {
+        cursor: pointer;
+        width: 15px;
+        height: 15px;
+    }
+    .filter-bar .filter-label {
+        font-weight: bold;
+        font-size: 13px;
+        color: #2F5496;
+    }
+    .export-btn-text {
+        padding: 4px 12px;
+        border: 1px solid #2F5496;
+        background: #e8f0fe;
+        border-radius: 6px;
+        font-size: 12px;
+        cursor: pointer;
+        color: #2F5496;
+        font-weight: bold;
+        transition: background 0.15s;
+        margin-right: 15px;
+    }
+    .export-btn-text:hover {
+        background: #c5d8f5;
+    }
+    /* Filtered-out course */
+    .course-node.filtered-out {
+        opacity: 0.12;
+        pointer-events: none;
+    }
+    .course-node.filtered-out rect {
+        filter: grayscale(1) !important;
+    }
+    /* Completed course */
+    .course-node.completed rect {
+        fill: #9e9e9e !important;
+        stroke: #757575 !important;
+        filter: none !important;
+    }
+    .course-node.completed text {
+        fill: #e0e0e0 !important;
+    }
+    .course-node.completed:hover rect {
+        stroke-width: 3;
+        filter: drop-shadow(0 2px 6px rgba(0,0,0,0.2)) !important;
+    }
+    /* Semester badges in info panel */
+    .semester-badges {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 8px 0;
+        flex-wrap: wrap;
+    }
+    .semester-badge {
+        background: #e8f0fe;
+        color: #2F5496;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: bold;
+    }
+    .syllabus-btn {
+        cursor: pointer;
+        background: white;
+        color: #2F5496;
+        border: 1px solid #2F5496;
+        border-radius: 12px;
+        padding: 2px 10px;
+        font-size: 11px;
+        font-weight: bold;
+        transition: all 0.2s;
+    }
+    .syllabus-btn:hover {
+        background: #e8f0fe;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .completed-toggle {
+        margin-top: 10px;
+        padding: 8px 0 2px;
+        border-top: 1px solid #eee;
+    }
+    .completed-toggle label {
+        cursor: pointer;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: #c0392b;
+        font-weight: bold;
+    }
+    .completed-toggle label.is-completed {
+        color: #27ae60;
+    }
+    .completed-toggle input[type="checkbox"] {
+        cursor: pointer;
+        width: 16px;
+        height: 16px;
+    }
+    /* Completed courses side panel */
+    .completed-panel {
+        position: fixed;
+        top: 130px;
+        left: 20px;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        width: 260px;
+        max-height: calc(100vh - 200px);
+        z-index: 150;
+        direction: rtl;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+    .completed-panel-header {
+        padding: 10px 14px;
+        background: linear-gradient(135deg, #27ae60, #1e8449);
+        color: white;
+        font-size: 13px;
+        font-weight: bold;
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .completed-panel-header .toggle { font-size: 11px; opacity: 0.8; }
+    .completed-panel-header .counter {
+        background: rgba(255,255,255,0.25);
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+    }
+    .completed-panel-body {
+        overflow-y: auto;
+        max-height: calc(100vh - 260px);
+        padding: 4px 0;
+    }
+    .completed-panel.collapsed .completed-panel-body { display: none; }
+    .completed-panel-item {
+        padding: 5px 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        border-bottom: 1px solid #f5f5f5;
+        cursor: pointer;
+        transition: background 0.12s;
+    }
+    .completed-panel-item:hover {
+        background: #f0fff4;
+    }
+    .completed-panel-item input[type="checkbox"] {
+        cursor: pointer;
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+    }
+    .completed-panel-item .cp-code {
+        font-weight: bold;
+        color: #2F5496;
+        min-width: 42px;
+    }
+    .completed-panel-item .cp-name {
+        color: #333;
+        flex: 1;
+    }
+    .completed-panel-item.is-done {
+        background: #f0fff4;
+    }
+    .completed-panel-item.is-done .cp-name {
+        text-decoration: line-through;
+        color: #999;
+    }
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>תרשים תלויות קורסים</h1>
+    <p>הנדסת תעשייה וניהול - האוניברסיטה הפתוחה</p>
+</div>
+<div class="legend">
+    <div class="legend-item"><div class="legend-color" style="background:#4CAF50"></div>קורסי בסיס (ללא תנאי קדם)</div>
+    <div class="legend-item"><div class="legend-color" style="background:#2196F3"></div>רמה 2</div>
+    <div class="legend-item"><div class="legend-color" style="background:#FF9800"></div>רמה 3</div>
+    <div class="legend-item"><div class="legend-color" style="background:#9C27B0"></div>רמה 4</div>
+    <div class="legend-item"><div class="legend-color" style="background:#F44336"></div>רמה 5</div>
+    <div class="legend-item"><div class="legend-color" style="background:#00BCD4"></div>רמה 6</div>
+</div>
+<div class="instructions">🖱️ <strong>לחיצה</strong> על קורס = נעיצת חצים (לחצו שוב לביטול). אפשר לנעוץ כמה קורסים במקביל להשוואה. &nbsp;|&nbsp; 🔍 <strong>ריחוף</strong> מעל קורס = תצוגה זמנית של חצים. &nbsp;|&nbsp; 🔎 גלגלת / כפתורי +/- לזום. גרירה להזזה.</div>
+<div class="filter-bar">
+    <span class="filter-label">סינון לפי סמסטר:</span>
+    <label><input type="checkbox" id="filter-a" onchange="updateFilters()"> א׳</label>
+    <label><input type="checkbox" id="filter-b" onchange="updateFilters()"> ב׳</label>
+    <label><input type="checkbox" id="filter-c" onchange="updateFilters()"> ג׳</label>
+    <span style="color:#999; font-size:11px;">(ללא סימון = הצג הכל)</span>
+    <button onclick="exportHTML()" class="export-btn-text" title="ייצוא המצב הנוכחי לקובץ HTML חדש">💾 ייצוא HTML</button>
+</div>
+<div class="chart-container" id="chart-container">
+<svg id="flowchart-svg" width="2340" height="910" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="#999" />
+  </marker>
+  <marker id="arrowhead-pinned" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="#e74c3c" />
+  </marker>
+  <marker id="arrowhead-hover" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="#3498db" />
+  </marker>
+  <marker id="arrowhead-critical" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+    <polygon points="0 0, 10 3.5, 0 7" fill="#ff6f00" />
+  </marker>
+</defs>
+  <path class="edge" id="edge-30203-10230" d="M 2050.0 130 C 2050.0 170.0, 400.0 170.0, 400.0 210" data-from="30203" data-to="10230" />
+  <path class="edge" id="edge-10131-10230" d="M 290.0 130 C 290.0 170.0, 400.0 170.0, 400.0 210" data-from="10131" data-to="10230" />
+  <path class="edge" id="edge-10708-10230" d="M 1390.0 130 C 1390.0 170.0, 400.0 170.0, 400.0 210" data-from="10708" data-to="10230" />
+  <path class="edge" id="edge-10131-10281" d="M 290.0 130 C 290.0 170.0, 620.0 170.0, 620.0 210" data-from="10131" data-to="10281" />
+  <path class="edge" id="edge-20605-10571" d="M 1830.0 130 C 1830.0 430.0, 950.0 430.0, 950.0 730" data-from="20605" data-to="10571" />
+  <path class="edge" id="edge-10444-10571" d="M 950.0 130 C 950.0 430.0, 950.0 430.0, 950.0 730" data-from="10444" data-to="10571" />
+  <path class="edge" id="edge-10688-10571" d="M 1170.0 520 C 1170.0 625.0, 950.0 625.0, 950.0 730" data-from="10688" data-to="10571" />
+  <path class="edge" id="edge-10695-10571" d="M 1060.0 650 C 1060.0 690.0, 950.0 690.0, 950.0 730" data-from="10695" data-to="10571" />
+  <path class="edge" id="edge-10579-10571" d="M 840.0 260 C 840.0 495.0, 950.0 495.0, 950.0 730" data-from="10579" data-to="10571" />
+  <path class="edge" id="edge-30203-10579" d="M 2050.0 130 C 2050.0 170.0, 840.0 170.0, 840.0 210" data-from="30203" data-to="10579" />
+  <path class="edge" id="edge-10687-10580" d="M 510.0 390 C 510.0 560.0, 1170.0 560.0, 1170.0 730" data-from="10687" data-to="10580" />
+  <path class="edge" id="edge-20297-10580" d="M 1720.0 260 C 1720.0 495.0, 1170.0 495.0, 1170.0 730" data-from="20297" data-to="10580" />
+  <path class="edge" id="edge-10688-10580" d="M 1170.0 520 C 1170.0 625.0, 1170.0 625.0, 1170.0 730" data-from="10688" data-to="10580" />
+  <path class="edge" id="edge-10695-10580" d="M 1060.0 650 C 1060.0 690.0, 1170.0 690.0, 1170.0 730" data-from="10695" data-to="10580" />
+  <path class="edge" id="edge-30203-10687" d="M 2050.0 130 C 2050.0 235.0, 510.0 235.0, 510.0 340" data-from="30203" data-to="10687" />
+  <path class="edge" id="edge-30204-10687" d="M 1940.0 260 C 1940.0 300.0, 510.0 300.0, 510.0 340" data-from="30204" data-to="10687" />
+  <path class="edge" id="edge-20406-10687" d="M 1610.0 130 C 1610.0 235.0, 510.0 235.0, 510.0 340" data-from="20406" data-to="10687" />
+  <path class="edge" id="edge-10687-10688" d="M 510.0 390 C 510.0 430.0, 1170.0 430.0, 1170.0 470" data-from="10687" data-to="10688" />
+  <path class="edge" id="edge-30204-10695" d="M 1940.0 260 C 1940.0 430.0, 1060.0 430.0, 1060.0 600" data-from="30204" data-to="10695" />
+  <path class="edge" id="edge-30203-10695" d="M 2050.0 130 C 2050.0 365.0, 1060.0 365.0, 1060.0 600" data-from="30203" data-to="10695" />
+  <path class="edge" id="edge-10163-10695" d="M 510.0 130 C 510.0 365.0, 1060.0 365.0, 1060.0 600" data-from="10163" data-to="10695" />
+  <path class="edge" id="edge-10687-10695" d="M 510.0 390 C 510.0 495.0, 1060.0 495.0, 1060.0 600" data-from="10687" data-to="10695" />
+  <path class="edge" id="edge-10688-10695" d="M 1170.0 520 C 1170.0 560.0, 1060.0 560.0, 1060.0 600" data-from="10688" data-to="10695" />
+  <path class="edge" id="edge-10163-10702" d="M 510.0 130 C 510.0 235.0, 730.0 235.0, 730.0 340" data-from="10163" data-to="10702" />
+  <path class="edge" id="edge-30203-10702" d="M 2050.0 130 C 2050.0 235.0, 730.0 235.0, 730.0 340" data-from="30203" data-to="10702" />
+  <path class="edge" id="edge-30204-10702" d="M 1940.0 260 C 1940.0 300.0, 730.0 300.0, 730.0 340" data-from="30204" data-to="10702" />
+  <path class="edge" id="edge-10163-10715" d="M 510.0 130 C 510.0 235.0, 950.0 235.0, 950.0 340" data-from="10163" data-to="10715" />
+  <path class="edge" id="edge-30204-10715" d="M 1940.0 260 C 1940.0 300.0, 950.0 300.0, 950.0 340" data-from="30204" data-to="10715" />
+  <path class="edge" id="edge-30203-10715" d="M 2050.0 130 C 2050.0 235.0, 950.0 235.0, 950.0 340" data-from="30203" data-to="10715" />
+  <path class="edge" id="edge-30204-10906" d="M 1940.0 260 C 1940.0 430.0, 1280.0 430.0, 1280.0 600" data-from="30204" data-to="10906" />
+  <path class="edge" id="edge-10688-10906" d="M 1170.0 520 C 1170.0 560.0, 1280.0 560.0, 1280.0 600" data-from="10688" data-to="10906" />
+  <path class="edge" id="edge-20297-10906" d="M 1720.0 260 C 1720.0 430.0, 1280.0 430.0, 1280.0 600" data-from="20297" data-to="10906" />
+  <path class="edge" id="edge-10434-10906" d="M 730.0 130 C 730.0 365.0, 1280.0 365.0, 1280.0 600" data-from="10434" data-to="10906" />
+  <path class="edge" id="edge-10230-10906" d="M 400.0 260 C 400.0 430.0, 1280.0 430.0, 1280.0 600" data-from="10230" data-to="10906" />
+  <path class="edge" id="edge-20406-10907" d="M 1610.0 130 C 1610.0 235.0, 1170.0 235.0, 1170.0 340" data-from="20406" data-to="10907" />
+  <path class="edge" id="edge-20423-10907" d="M 1500.0 260 C 1500.0 300.0, 1170.0 300.0, 1170.0 340" data-from="20423" data-to="10907" />
+  <path class="edge" id="edge-30203-10907" d="M 2050.0 130 C 2050.0 235.0, 1170.0 235.0, 1170.0 340" data-from="30203" data-to="10907" />
+  <path class="edge" id="edge-10715-10923" d="M 950.0 390 C 950.0 560.0, 1390.0 560.0, 1390.0 730" data-from="10715" data-to="10923" />
+  <path class="edge" id="edge-10695-10923" d="M 1060.0 650 C 1060.0 690.0, 1390.0 690.0, 1390.0 730" data-from="10695" data-to="10923" />
+  <path class="edge" id="edge-10702-10923" d="M 730.0 390 C 730.0 560.0, 1390.0 560.0, 1390.0 730" data-from="10702" data-to="10923" />
+  <path class="edge" id="edge-10687-10923" d="M 510.0 390 C 510.0 560.0, 1390.0 560.0, 1390.0 730" data-from="10687" data-to="10923" />
+  <path class="edge" id="edge-10688-10923" d="M 1170.0 520 C 1170.0 625.0, 1390.0 625.0, 1390.0 730" data-from="10688" data-to="10923" />
+  <path class="edge" id="edge-20406-10926" d="M 1610.0 130 C 1610.0 235.0, 1390.0 235.0, 1390.0 340" data-from="20406" data-to="10926" />
+  <path class="edge" id="edge-20423-10926" d="M 1500.0 260 C 1500.0 300.0, 1390.0 300.0, 1390.0 340" data-from="20423" data-to="10926" />
+  <path class="edge" id="edge-20297-10926" d="M 1720.0 260 C 1720.0 300.0, 1390.0 300.0, 1390.0 340" data-from="20297" data-to="10926" />
+  <path class="edge" id="edge-10444-10926" d="M 950.0 130 C 950.0 235.0, 1390.0 235.0, 1390.0 340" data-from="10444" data-to="10926" />
+  <path class="edge" id="edge-30204-10948" d="M 1940.0 260 C 1940.0 300.0, 1610.0 300.0, 1610.0 340" data-from="30204" data-to="10948" />
+  <path class="edge" id="edge-10444-10948" d="M 950.0 130 C 950.0 235.0, 1610.0 235.0, 1610.0 340" data-from="10444" data-to="10948" />
+  <path class="edge" id="edge-20406-20125" d="M 1610.0 130 C 1610.0 170.0, 1060.0 170.0, 1060.0 210" data-from="20406" data-to="20125" />
+  <path class="edge" id="edge-10444-20277" d="M 950.0 130 C 950.0 170.0, 1280.0 170.0, 1280.0 210" data-from="10444" data-to="20277" />
+  <path class="edge" id="edge-10444-20297" d="M 950.0 130 C 950.0 170.0, 1720.0 170.0, 1720.0 210" data-from="10444" data-to="20297" />
+  <path class="edge" id="edge-20605-20297" d="M 1830.0 130 C 1830.0 170.0, 1720.0 170.0, 1720.0 210" data-from="20605" data-to="20297" />
+  <path class="edge" id="edge-20125-20418" d="M 1060.0 260 C 1060.0 300.0, 1830.0 300.0, 1830.0 340" data-from="20125" data-to="20418" />
+  <path class="edge" id="edge-20406-20423" d="M 1610.0 130 C 1610.0 170.0, 1500.0 170.0, 1500.0 210" data-from="20406" data-to="20423" />
+  <path class="edge" id="edge-30203-30204" d="M 2050.0 130 C 2050.0 170.0, 1940.0 170.0, 1940.0 210" data-from="30203" data-to="30204" />
+  <g class="course-node" id="node-10131" data-course="10131" onclick="pinToggle('10131')" onmouseenter="hoverOn('10131')" onmouseleave="hoverOff('10131')">
+    <rect x="200.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="290.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10131</text>
+    <text x="290.0" y="118" text-anchor="middle" fill="white" font-size="11">מבוא למיקרוכלכלה</text>
+  </g>
+  <g class="course-node" id="node-10163" data-course="10163" onclick="pinToggle('10163')" onmouseenter="hoverOn('10163')" onmouseleave="hoverOff('10163')">
+    <rect x="420.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="510.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10163</text>
+    <text x="510.0" y="118" text-anchor="middle" fill="white" font-size="11">מבוא להנדסת תעשייה</text>
+  </g>
+  <g class="course-node" id="node-10230" data-course="10230" onclick="pinToggle('10230')" onmouseenter="hoverOn('10230')" onmouseleave="hoverOff('10230')">
+    <rect x="310.0" y="210" width="180" height="50" rx="8" ry="8" fill="#2196F3" stroke="#2196F3" stroke-width="2" />
+    <text x="400.0" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10230</text>
+    <text x="400.0" y="248" text-anchor="middle" fill="white" font-size="11">תורת המימון</text>
+  </g>
+  <g class="course-node" id="node-10281" data-course="10281" onclick="pinToggle('10281')" onmouseenter="hoverOn('10281')" onmouseleave="hoverOff('10281')">
+    <rect x="530.0" y="210" width="180" height="50" rx="8" ry="8" fill="#2196F3" stroke="#2196F3" stroke-width="2" />
+    <text x="620.0" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10281</text>
+    <text x="620.0" y="248" text-anchor="middle" fill="white" font-size="11">ניהול השיווק</text>
+  </g>
+  <g class="course-node" id="node-10434" data-course="10434" onclick="pinToggle('10434')" onmouseenter="hoverOn('10434')" onmouseleave="hoverOff('10434')">
+    <rect x="640.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="730.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10434</text>
+    <text x="730.0" y="118" text-anchor="middle" fill="white" font-size="11">התנהגות ארגונית-מקרו</text>
+  </g>
+  <g class="course-node" id="node-10444" data-course="10444" onclick="pinToggle('10444')" onmouseenter="hoverOn('10444')" onmouseleave="hoverOff('10444')">
+    <rect x="860.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="950.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10444</text>
+    <text x="950.0" y="118" text-anchor="middle" fill="white" font-size="11">נושאים במתמטיקה</text>
+  </g>
+  <g class="course-node" id="node-10571" data-course="10571" onclick="pinToggle('10571')" onmouseenter="hoverOn('10571')" onmouseleave="hoverOff('10571')">
+    <rect x="860.0" y="730" width="180" height="50" rx="8" ry="8" fill="#00BCD4" stroke="#00BCD4" stroke-width="2" />
+    <text x="950.0" y="750" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10571</text>
+    <text x="950.0" y="768" text-anchor="middle" fill="white" font-size="11">מערכות ייצור משולבות מחשב</text>
+  </g>
+  <g class="course-node" id="node-10579" data-course="10579" onclick="pinToggle('10579')" onmouseenter="hoverOn('10579')" onmouseleave="hoverOff('10579')">
+    <rect x="750.0" y="210" width="180" height="50" rx="8" ry="8" fill="#2196F3" stroke="#2196F3" stroke-width="2" />
+    <text x="840.0" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10579</text>
+    <text x="840.0" y="248" text-anchor="middle" fill="white" font-size="11">תקשורת נתונים</text>
+  </g>
+  <g class="course-node" id="node-10580" data-course="10580" onclick="pinToggle('10580')" onmouseenter="hoverOn('10580')" onmouseleave="hoverOff('10580')">
+    <rect x="1080.0" y="730" width="180" height="50" rx="8" ry="8" fill="#00BCD4" stroke="#00BCD4" stroke-width="2" />
+    <text x="1170.0" y="750" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10580</text>
+    <text x="1170.0" y="768" text-anchor="middle" fill="white" font-size="11">תכן מערך מפעלים</text>
+  </g>
+  <g class="course-node" id="node-10645" data-course="10645" onclick="pinToggle('10645')" onmouseenter="hoverOn('10645')" onmouseleave="hoverOff('10645')">
+    <rect x="1080.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="1170.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10645</text>
+    <text x="1170.0" y="118" text-anchor="middle" fill="white" font-size="11">תכנון מערכות מידע</text>
+  </g>
+  <g class="course-node" id="node-10687" data-course="10687" onclick="pinToggle('10687')" onmouseenter="hoverOn('10687')" onmouseleave="hoverOff('10687')">
+    <rect x="420.0" y="340" width="180" height="50" rx="8" ry="8" fill="#FF9800" stroke="#FF9800" stroke-width="2" />
+    <text x="510.0" y="360" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10687</text>
+    <text x="510.0" y="378" text-anchor="middle" fill="white" font-size="11">ניהול התפעול 1</text>
+  </g>
+  <g class="course-node" id="node-10688" data-course="10688" onclick="pinToggle('10688')" onmouseenter="hoverOn('10688')" onmouseleave="hoverOff('10688')">
+    <rect x="1080.0" y="470" width="180" height="50" rx="8" ry="8" fill="#9C27B0" stroke="#9C27B0" stroke-width="2" />
+    <text x="1170.0" y="490" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10688</text>
+    <text x="1170.0" y="508" text-anchor="middle" fill="white" font-size="11">ניהול התפעול 2</text>
+  </g>
+  <g class="course-node" id="node-10695" data-course="10695" onclick="pinToggle('10695')" onmouseenter="hoverOn('10695')" onmouseleave="hoverOff('10695')">
+    <rect x="970.0" y="600" width="180" height="50" rx="8" ry="8" fill="#F44336" stroke="#F44336" stroke-width="2" />
+    <text x="1060.0" y="620" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10695</text>
+    <text x="1060.0" y="638" text-anchor="middle" fill="white" font-size="11">סימולציה למהנדסי תעשייה</text>
+  </g>
+  <g class="course-node" id="node-10702" data-course="10702" onclick="pinToggle('10702')" onmouseenter="hoverOn('10702')" onmouseleave="hoverOff('10702')">
+    <rect x="640.0" y="340" width="180" height="50" rx="8" ry="8" fill="#FF9800" stroke="#FF9800" stroke-width="2" />
+    <text x="730.0" y="360" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10702</text>
+    <text x="730.0" y="378" text-anchor="middle" fill="white" font-size="11">ארגונומיה</text>
+  </g>
+  <g class="course-node" id="node-10708" data-course="10708" onclick="pinToggle('10708')" onmouseenter="hoverOn('10708')" onmouseleave="hoverOff('10708')">
+    <rect x="1300.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="1390.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10708</text>
+    <text x="1390.0" y="118" text-anchor="middle" fill="white" font-size="11">יסודות החשבונאות</text>
+  </g>
+  <g class="course-node" id="node-10715" data-course="10715" onclick="pinToggle('10715')" onmouseenter="hoverOn('10715')" onmouseleave="hoverOff('10715')">
+    <rect x="860.0" y="340" width="180" height="50" rx="8" ry="8" fill="#FF9800" stroke="#FF9800" stroke-width="2" />
+    <text x="950.0" y="360" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10715</text>
+    <text x="950.0" y="378" text-anchor="middle" fill="white" font-size="11">חקר עבודה</text>
+  </g>
+  <g class="course-node" id="node-10906" data-course="10906" onclick="pinToggle('10906')" onmouseenter="hoverOn('10906')" onmouseleave="hoverOff('10906')">
+    <rect x="1190.0" y="600" width="180" height="50" rx="8" ry="8" fill="#F44336" stroke="#F44336" stroke-width="2" />
+    <text x="1280.0" y="620" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10906</text>
+    <text x="1280.0" y="638" text-anchor="middle" fill="white" font-size="11">ניהול פרויקטים</text>
+  </g>
+  <g class="course-node" id="node-10907" data-course="10907" onclick="pinToggle('10907')" onmouseenter="hoverOn('10907')" onmouseleave="hoverOff('10907')">
+    <rect x="1080.0" y="340" width="180" height="50" rx="8" ry="8" fill="#FF9800" stroke="#FF9800" stroke-width="2" />
+    <text x="1170.0" y="360" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10907</text>
+    <text x="1170.0" y="378" text-anchor="middle" fill="white" font-size="11">הסתברות ומודלים סטוכסטיים</text>
+  </g>
+  <g class="course-node" id="node-10923" data-course="10923" onclick="pinToggle('10923')" onmouseenter="hoverOn('10923')" onmouseleave="hoverOff('10923')">
+    <rect x="1300.0" y="730" width="180" height="50" rx="8" ry="8" fill="#00BCD4" stroke="#00BCD4" stroke-width="2" />
+    <text x="1390.0" y="750" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10923</text>
+    <text x="1390.0" y="768" text-anchor="middle" fill="white" font-size="11">פרויקט מסכם</text>
+  </g>
+  <g class="course-node" id="node-10926" data-course="10926" onclick="pinToggle('10926')" onmouseenter="hoverOn('10926')" onmouseleave="hoverOff('10926')">
+    <rect x="1300.0" y="340" width="180" height="50" rx="8" ry="8" fill="#FF9800" stroke="#FF9800" stroke-width="2" />
+    <text x="1390.0" y="360" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10926</text>
+    <text x="1390.0" y="378" text-anchor="middle" fill="white" font-size="11">שיטות אופטימיזציה</text>
+  </g>
+  <g class="course-node" id="node-10948" data-course="10948" onclick="pinToggle('10948')" onmouseenter="hoverOn('10948')" onmouseleave="hoverOff('10948')">
+    <rect x="1520.0" y="340" width="180" height="50" rx="8" ry="8" fill="#FF9800" stroke="#FF9800" stroke-width="2" />
+    <text x="1610.0" y="360" text-anchor="middle" fill="white" font-size="14" font-weight="bold">10948</text>
+    <text x="1610.0" y="378" text-anchor="middle" fill="white" font-size="11">בקרת איכות</text>
+  </g>
+  <g class="course-node" id="node-20125" data-course="20125" onclick="pinToggle('20125')" onmouseenter="hoverOn('20125')" onmouseleave="hoverOff('20125')">
+    <rect x="970.0" y="210" width="180" height="50" rx="8" ry="8" fill="#2196F3" stroke="#2196F3" stroke-width="2" />
+    <text x="1060.0" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">20125</text>
+    <text x="1060.0" y="248" text-anchor="middle" fill="white" font-size="11">יסודות הפיסיקה</text>
+  </g>
+  <g class="course-node" id="node-20277" data-course="20277" onclick="pinToggle('20277')" onmouseenter="hoverOn('20277')" onmouseleave="hoverOff('20277')">
+    <rect x="1190.0" y="210" width="180" height="50" rx="8" ry="8" fill="#2196F3" stroke="#2196F3" stroke-width="2" />
+    <text x="1280.0" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">20277</text>
+    <text x="1280.0" y="248" text-anchor="middle" fill="white" font-size="11">מערכות בסיסי-נתונים</text>
+  </g>
+  <g class="course-node" id="node-20297" data-course="20297" onclick="pinToggle('20297')" onmouseenter="hoverOn('20297')" onmouseleave="hoverOff('20297')">
+    <rect x="1630.0" y="210" width="180" height="50" rx="8" ry="8" fill="#2196F3" stroke="#2196F3" stroke-width="2" />
+    <text x="1720.0" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">20297</text>
+    <text x="1720.0" y="248" text-anchor="middle" fill="white" font-size="11">מודלים דטרמיניסטיים</text>
+  </g>
+  <g class="course-node" id="node-20406" data-course="20406" onclick="pinToggle('20406')" onmouseenter="hoverOn('20406')" onmouseleave="hoverOff('20406')">
+    <rect x="1520.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="1610.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">20406</text>
+    <text x="1610.0" y="118" text-anchor="middle" fill="white" font-size="11">חשבון דיפרנציאלי א</text>
+  </g>
+  <g class="course-node" id="node-20418" data-course="20418" onclick="pinToggle('20418')" onmouseenter="hoverOn('20418')" onmouseleave="hoverOff('20418')">
+    <rect x="1740.0" y="340" width="180" height="50" rx="8" ry="8" fill="#FF9800" stroke="#FF9800" stroke-width="2" />
+    <text x="1830.0" y="360" text-anchor="middle" fill="white" font-size="14" font-weight="bold">20418</text>
+    <text x="1830.0" y="378" text-anchor="middle" fill="white" font-size="11">מעבדה ביסודות הפיסיקה</text>
+  </g>
+  <g class="course-node" id="node-20423" data-course="20423" onclick="pinToggle('20423')" onmouseenter="hoverOn('20423')" onmouseleave="hoverOff('20423')">
+    <rect x="1410.0" y="210" width="180" height="50" rx="8" ry="8" fill="#2196F3" stroke="#2196F3" stroke-width="2" />
+    <text x="1500.0" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">20423</text>
+    <text x="1500.0" y="248" text-anchor="middle" fill="white" font-size="11">חשבון דיפרנציאלי ב</text>
+  </g>
+  <g class="course-node" id="node-20605" data-course="20605" onclick="pinToggle('20605')" onmouseenter="hoverOn('20605')" onmouseleave="hoverOff('20605')">
+    <rect x="1740.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="1830.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">20605</text>
+    <text x="1830.0" y="118" text-anchor="middle" fill="white" font-size="11">יסודות התכנות בפייתון</text>
+  </g>
+  <g class="course-node" id="node-30203" data-course="30203" onclick="pinToggle('30203')" onmouseenter="hoverOn('30203')" onmouseleave="hoverOff('30203')">
+    <rect x="1960.0" y="80" width="180" height="50" rx="8" ry="8" fill="#4CAF50" stroke="#4CAF50" stroke-width="2" />
+    <text x="2050.0" y="100" text-anchor="middle" fill="white" font-size="14" font-weight="bold">30203</text>
+    <text x="2050.0" y="118" text-anchor="middle" fill="white" font-size="11">מבוא לסטטיסטיקה</text>
+  </g>
+  <g class="course-node" id="node-30204" data-course="30204" onclick="pinToggle('30204')" onmouseenter="hoverOn('30204')" onmouseleave="hoverOff('30204')">
+    <rect x="1850.0" y="210" width="180" height="50" rx="8" ry="8" fill="#2196F3" stroke="#2196F3" stroke-width="2" />
+    <text x="1940.0" y="230" text-anchor="middle" fill="white" font-size="14" font-weight="bold">30204</text>
+    <text x="1940.0" y="248" text-anchor="middle" fill="white" font-size="11">הסקה סטטיסטית</text>
+  </g>
+</svg>
+</div>
+<div class="zoom-controls">
+    <button onclick="zoomIn()" title="הגדל">+</button>
+    <div class="zoom-level" id="zoom-level">100%</div>
+    <button onclick="zoomOut()" title="הקטן">−</button>
+    <button onclick="zoomReset()" title="התאם לחלון" style="font-size:14px;">⊞</button>
+</div>
+<div class="info-panel" id="info-panel">
+  <h3 id="info-title"></h3>
+  <div class="prereqs" id="info-prereqs"></div>
+</div>
+<div class="completed-panel" id="completed-panel">
+    <div class="completed-panel-header" onclick="toggleCompletedPanel()">
+        <span>✅ קורסים שעברתי</span>
+        <span class="counter" id="completed-counter">0/31</span>
+        <span class="toggle" id="completed-toggle">▼</span>
+    </div>
+    <div class="completed-panel-body" id="completed-panel-body"></div>
+</div>
+<div class="pinned-list" id="pinned-list">
+  <h4>📌 קורסים נעוצים</h4>
+  <div id="pinned-items"></div>
+  <div class="clear-btn" onclick="clearAllPins()">נקה הכל</div>
+</div>
+<div class="paths-panel" id="paths-panel">
+  <div class="paths-panel-header" onclick="togglePathsPanel()">
+    <span>🔥 מסלולים קריטיים</span>
+    <span class="toggle" id="paths-toggle">▼</span>
+  </div>
+  <div class="paths-panel-body" id="paths-body">
+    <div class="path-item" data-path-idx="0" onclick="selectPath(0)">
+      <div class="path-rank">#1</div>
+      <div class="path-name">מערכות ייצור משולבות מחשב ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 30204 → 10687 → 10688 → 10695 → 10571</div>
+      <div class="path-stats"><span>📏 6 קורסים</span><span>💥 השפעה: 38</span></div>
+    </div>
+    <div class="path-item" data-path-idx="1" onclick="selectPath(1)">
+      <div class="path-rank">#2</div>
+      <div class="path-name">תכן מערך מפעלים ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 30204 → 10687 → 10688 → 10695 → 10580</div>
+      <div class="path-stats"><span>📏 6 קורסים</span><span>💥 השפעה: 38</span></div>
+    </div>
+    <div class="path-item" data-path-idx="2" onclick="selectPath(2)">
+      <div class="path-rank">#3</div>
+      <div class="path-name">פרויקט מסכם ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 30204 → 10687 → 10688 → 10695 → 10923</div>
+      <div class="path-stats"><span>📏 6 קורסים</span><span>💥 השפעה: 38</span></div>
+    </div>
+    <div class="path-item" data-path-idx="3" onclick="selectPath(3)">
+      <div class="path-rank">#4</div>
+      <div class="path-name">ניהול פרויקטים ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 30204 → 10687 → 10688 → 10906</div>
+      <div class="path-stats"><span>📏 5 קורסים</span><span>💥 השפעה: 35</span></div>
+    </div>
+    <div class="path-item" data-path-idx="4" onclick="selectPath(4)">
+      <div class="path-rank">#5</div>
+      <div class="path-name">מערכות ייצור משולבות מחשב ← חשבון דיפרנציאלי א</div>
+      <div class="path-courses">20406 → 10687 → 10688 → 10695 → 10571</div>
+      <div class="path-stats"><span>📏 5 קורסים</span><span>💥 השפעה: 26</span></div>
+    </div>
+    <div class="path-item" data-path-idx="5" onclick="selectPath(5)">
+      <div class="path-rank">#6</div>
+      <div class="path-name">תכן מערך מפעלים ← חשבון דיפרנציאלי א</div>
+      <div class="path-courses">20406 → 10687 → 10688 → 10695 → 10580</div>
+      <div class="path-stats"><span>📏 5 קורסים</span><span>💥 השפעה: 26</span></div>
+    </div>
+    <div class="path-item" data-path-idx="6" onclick="selectPath(6)">
+      <div class="path-rank">#7</div>
+      <div class="path-name">פרויקט מסכם ← חשבון דיפרנציאלי א</div>
+      <div class="path-courses">20406 → 10687 → 10688 → 10695 → 10923</div>
+      <div class="path-stats"><span>📏 5 קורסים</span><span>💥 השפעה: 26</span></div>
+    </div>
+    <div class="path-item" data-path-idx="7" onclick="selectPath(7)">
+      <div class="path-rank">#8</div>
+      <div class="path-name">פרויקט מסכם ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 30204 → 10702 → 10923</div>
+      <div class="path-stats"><span>📏 4 קורסים</span><span>💥 השפעה: 25</span></div>
+    </div>
+    <div class="path-item" data-path-idx="8" onclick="selectPath(8)">
+      <div class="path-rank">#9</div>
+      <div class="path-name">פרויקט מסכם ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 30204 → 10715 → 10923</div>
+      <div class="path-stats"><span>📏 4 קורסים</span><span>💥 השפעה: 25</span></div>
+    </div>
+    <div class="path-item" data-path-idx="9" onclick="selectPath(9)">
+      <div class="path-rank">#10</div>
+      <div class="path-name">בקרת איכות ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 30204 → 10948</div>
+      <div class="path-stats"><span>📏 3 קורסים</span><span>💥 השפעה: 24</span></div>
+    </div>
+    <div class="path-item" data-path-idx="10" onclick="selectPath(10)">
+      <div class="path-rank">#11</div>
+      <div class="path-name">ניהול פרויקטים ← חשבון דיפרנציאלי א</div>
+      <div class="path-courses">20406 → 10687 → 10688 → 10906</div>
+      <div class="path-stats"><span>📏 4 קורסים</span><span>💥 השפעה: 23</span></div>
+    </div>
+    <div class="path-item" data-path-idx="11" onclick="selectPath(11)">
+      <div class="path-rank">#12</div>
+      <div class="path-name">ניהול פרויקטים ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 10230 → 10906</div>
+      <div class="path-stats"><span>📏 3 קורסים</span><span>💥 השפעה: 15</span></div>
+    </div>
+    <div class="path-item" data-path-idx="12" onclick="selectPath(12)">
+      <div class="path-rank">#13</div>
+      <div class="path-name">מערכות ייצור משולבות מחשב ← מבוא לסטטיסטיקה</div>
+      <div class="path-courses">30203 → 10579 → 10571</div>
+      <div class="path-stats"><span>📏 3 קורסים</span><span>💥 השפעה: 15</span></div>
+    </div>
+    <div class="path-item" data-path-idx="13" onclick="selectPath(13)">
+      <div class="path-rank">#14</div>
+      <div class="path-name">הסתברות ומודלים סטוכסטיים ← חשבון דיפרנציאלי א</div>
+      <div class="path-courses">20406 → 20423 → 10907</div>
+      <div class="path-stats"><span>📏 3 קורסים</span><span>💥 השפעה: 14</span></div>
+    </div>
+    <div class="path-item" data-path-idx="14" onclick="selectPath(14)">
+      <div class="path-rank">#15</div>
+      <div class="path-name">שיטות אופטימיזציה ← חשבון דיפרנציאלי א</div>
+      <div class="path-courses">20406 → 20423 → 10926</div>
+      <div class="path-stats"><span>📏 3 קורסים</span><span>💥 השפעה: 14</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const courseNames = {"10131": "מבוא למיקרוכלכלה", "10163": "מבוא להנדסת תעשייה", "10230": "תורת המימון", "10281": "ניהול השיווק", "10434": "התנהגות ארגונית-מקרו", "10444": "נושאים במתמטיקה", "10571": "מערכות ייצור משולבות מחשב", "10579": "תקשורת נתונים", "10580": "תכן מערך מפעלים", "10645": "תכנון מערכות מידע", "10687": "ניהול התפעול 1", "10688": "ניהול התפעול 2", "10695": "סימולציה למהנדסי תעשייה", "10702": "ארגונומיה", "10708": "יסודות החשבונאות", "10715": "חקר עבודה", "10906": "ניהול פרויקטים", "10907": "הסתברות ומודלים סטוכסטיים", "10923": "פרויקט מסכם", "10926": "שיטות אופטימיזציה", "10948": "בקרת איכות", "20125": "יסודות הפיסיקה", "20277": "מערכות בסיסי-נתונים", "20297": "מודלים דטרמיניסטיים", "20406": "חשבון דיפרנציאלי א", "20418": "מעבדה ביסודות הפיסיקה", "20423": "חשבון דיפרנציאלי ב", "20605": "יסודות התכנות בפייתון", "30203": "מבוא לסטטיסטיקה", "30204": "הסקה סטטיסטית"};
+const directPrereqs = {"10131": [], "10163": [], "10230": ["30203", "10131", "10708"], "10281": ["10131"], "10434": [], "10444": [], "10571": ["20605", "10444", "10688", "10695", "10579"], "10579": ["30203"], "10580": ["10687", "20297", "10688", "10695"], "10645": [], "10687": ["30203", "30204", "20406"], "10688": ["10687"], "10695": ["30204", "30203", "10163", "10687", "10688"], "10702": ["10163", "30203", "30204"], "10708": [], "10715": ["10163", "30204", "30203"], "10906": ["30204", "10688", "20297", "10434", "10230"], "10907": ["20406", "20423", "30203"], "10923": ["10715", "10695", "10702", "10687", "10688"], "10926": ["20406", "20423", "20297", "10444"], "10948": ["30204", "10444"], "20125": ["20406"], "20277": ["10444"], "20297": ["10444", "20605"], "20406": [], "20418": ["20125"], "20423": ["20406"], "20605": [], "30203": [], "30204": ["30203"]};
+const criticalPaths = [["30203", "30204", "10687", "10688", "10695", "10571"], ["30203", "30204", "10687", "10688", "10695", "10580"], ["30203", "30204", "10687", "10688", "10695", "10923"], ["30203", "30204", "10687", "10688", "10906"], ["20406", "10687", "10688", "10695", "10571"], ["20406", "10687", "10688", "10695", "10580"], ["20406", "10687", "10688", "10695", "10923"], ["30203", "30204", "10702", "10923"], ["30203", "30204", "10715", "10923"], ["30203", "30204", "10948"], ["20406", "10687", "10688", "10906"], ["30203", "10230", "10906"], ["30203", "10579", "10571"], ["20406", "20423", "10907"], ["20406", "20423", "10926"]];
+
+const courseSemesters = {"10131":["א","ב","ג"],"10163":["א","ב","ג"],"10230":["א","ב"],"10281":["א","ב"],"10434":["א","ב","ג"],"10444":["א","ב","ג"],"10571":["א","ב"],"10579":["ב"],"10580":["א"],"10645":["א","ב","ג"],"10687":["א","ב"],"10688":["ב","ג"],"10695":["א","ג"],"10702":["א"],"10708":["ב"],"10715":["ב"],"10906":["א"],"10907":["ב"],"10923":["א","ב","ג"],"10926":["א"],"10948":["א","ג"],"20125":["א","ב","ג"],"20277":["א","ב","ג"],"20297":["ב","ג"],"20406":["א","ב","ג"],"20418":["א","ב","ג"],"20423":["א","ב","ג"],"20605":["א","ב"],"30203":["א","ב","ג"],"30204":["א","ב"]};
+
+// ---- State ----
+const pinnedCourses = new Set();   // courses pinned via click
+const completedCourses = new Set(); // courses marked as passed
+let hoveredCourse = null;          // course currently hovered
+let activeCriticalPath = -1;       // index of active critical path (-1 = none)
+let activeFilters = new Set();     // active semester filters
+
+// ---- Helpers ----
+function getAllPrereqs(course, visited = new Set()) {
+    if (visited.has(course)) return visited;
+    visited.add(course);
+    for (const p of (directPrereqs[course] || [])) {
+        getAllPrereqs(p, visited);
+    }
+    return visited;
+}
+
+function getAllDependents(course, visited = new Set()) {
+    if (visited.has(course)) return visited;
+    visited.add(course);
+    for (const [c, prereqs] of Object.entries(directPrereqs)) {
+        if (prereqs.includes(course)) getAllDependents(c, visited);
+    }
+    return visited;
+}
+
+function getRelatedEdges(course) {
+    const allPrereqs = getAllPrereqs(course);
+    const allDependents = getAllDependents(course);
+    const related = new Set([...allPrereqs, ...allDependents]);
+    return { related };
+}
+
+// ---- Rendering ----
+function render() {
+    // 1) Reset all edges to hidden
+    document.querySelectorAll('.edge').forEach(e => {
+        e.classList.remove('pinned', 'hovered', 'critical-path');
+    });
+
+    // 2) Reset all node highlights
+    document.querySelectorAll('.course-node').forEach(n => {
+        n.classList.remove('pinned', 'related', 'hover-related', 'on-critical-path', 'completed', 'filtered-out');
+    });
+
+    // 2.1) Apply completed and semester filter states
+    document.querySelectorAll('.course-node').forEach(n => {
+        const c = n.dataset.course;
+        if (completedCourses.has(c)) {
+            n.classList.add('completed');
+        }
+        if (activeFilters.size > 0) {
+            const sems = courseSemesters[c] || [];
+            if (![...activeFilters].some(f => sems.includes(f))) {
+                n.classList.add('filtered-out');
+            }
+        }
+    });
+
+    // 2.5) Critical path highlight
+    if (activeCriticalPath >= 0) {
+        const pathCourses = criticalPaths[activeCriticalPath];
+        const pathSet = new Set(pathCourses);
+        // Highlight edges between consecutive courses on the path
+        document.querySelectorAll('.edge').forEach(edge => {
+            const from = edge.dataset.from;
+            const to = edge.dataset.to;
+            if (pathSet.has(from) && pathSet.has(to)) {
+                edge.classList.add('critical-path');
+            }
+        });
+        document.querySelectorAll('.course-node').forEach(node => {
+            if (pathSet.has(node.dataset.course)) {
+                node.classList.add('on-critical-path');
+            }
+        });
+    }
+
+    // 3) Collect all related nodes for pinned courses
+    const pinnedRelated = new Set();
+    for (const pc of pinnedCourses) {
+        const { related } = getRelatedEdges(pc);
+        for (const r of related) pinnedRelated.add(r);
+    }
+
+    // 4) Show pinned edges
+    if (pinnedCourses.size > 0) {
+        document.querySelectorAll('.edge').forEach(edge => {
+            const from = edge.dataset.from;
+            const to = edge.dataset.to;
+            if (pinnedRelated.has(from) && pinnedRelated.has(to)) {
+                edge.classList.add('pinned');
+            }
+        });
+        // Mark pinned nodes and their related nodes
+        document.querySelectorAll('.course-node').forEach(node => {
+            const c = node.dataset.course;
+            if (pinnedCourses.has(c)) {
+                node.classList.add('pinned');
+            } else if (pinnedRelated.has(c)) {
+                node.classList.add('related');
+            }
+        });
+    }
+
+    // 5) Show hovered edges (on top of / alongside pinned)
+    if (hoveredCourse && !pinnedCourses.has(hoveredCourse)) {
+        const { related: hoverRelated } = getRelatedEdges(hoveredCourse);
+        document.querySelectorAll('.edge').forEach(edge => {
+            const from = edge.dataset.from;
+            const to = edge.dataset.to;
+            if (!edge.classList.contains('pinned') && hoverRelated.has(from) && hoverRelated.has(to)) {
+                edge.classList.add('hovered');
+            }
+        });
+        document.querySelectorAll('.course-node').forEach(node => {
+            const c = node.dataset.course;
+            if (!node.classList.contains('pinned') && !node.classList.contains('related') && hoverRelated.has(c)) {
+                node.classList.add('hover-related');
+            }
+        });
+    }
+
+    // 5.5) Hide edges to/from filtered-out courses
+    if (activeFilters.size > 0) {
+        document.querySelectorAll('.edge').forEach(edge => {
+            const fromNode = document.getElementById('node-' + edge.dataset.from);
+            const toNode = document.getElementById('node-' + edge.dataset.to);
+            if ((fromNode && fromNode.classList.contains('filtered-out')) ||
+                (toNode && toNode.classList.contains('filtered-out'))) {
+                edge.classList.remove('pinned', 'hovered', 'critical-path');
+            }
+        });
+    }
+
+    // 6) Update pinned list panel
+    updatePinnedPanel();
+
+    // 7) Update info panel
+    updateInfoPanel();
+}
+
+function updatePinnedPanel() {
+    const panel = document.getElementById('pinned-list');
+    const items = document.getElementById('pinned-items');
+    if (pinnedCourses.size === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+    items.innerHTML = '';
+    for (const c of pinnedCourses) {
+        const div = document.createElement('div');
+        div.className = 'pinned-item';
+        div.textContent = '❌ ' + c + ' - ' + (courseNames[c] || '');
+        div.onclick = (e) => { e.stopPropagation(); pinToggle(c); };
+        items.appendChild(div);
+    }
+}
+
+function updateInfoPanel() {
+    const panel = document.getElementById('info-panel');
+    const target = hoveredCourse || (pinnedCourses.size === 1 ? [...pinnedCourses][0] : null);
+    if (!target) {
+        panel.style.display = 'none';
+        return;
+    }
+    const prereqs = directPrereqs[target] || [];
+    document.getElementById('info-title').textContent = target + ' - ' + (courseNames[target] || '');
+
+    // Semester info
+    const sems = courseSemesters[target] || [];
+    let html = '<div class="semester-badges"><span style="font-size:12px;color:#555;">סמסטרים: </span>';
+    for (const s of ['\u05D0', '\u05D1', '\u05D2']) {
+        if (sems.includes(s)) {
+            html += '<span class="semester-badge">' + s + '\u05F3</span>';
+        }
+    }
+    if (sems.length === 0) html += '<span style="font-size:12px;color:#999;">לא ידוע</span>';
+    html += '<a href="https://www.openu.ac.il/courses/' + target + '.htm" target="_blank" style="margin-right:auto;text-decoration:none;" title="פתח סילבוס באתר האוניברסיטה">';
+    html += '<button class="syllabus-btn">📄 סילבוס</button>';
+    html += '</a>';
+    html += '</div>';
+
+    html += '<strong>תנאי קדם ישירים:</strong><br>';
+    if (prereqs.length === 0) {
+        html += 'אין תנאי קדם';
+    } else {
+        html += prereqs.map(p => '← ' + p + ' - ' + (courseNames[p] || '')).join('<br>');
+    }
+
+    // Full recursive prereq chain
+    const allPrereqsSet = getAllPrereqs(target);
+    allPrereqsSet.delete(target);
+    const indirectPrereqs = [...allPrereqsSet].filter(p => !prereqs.includes(p));
+    if (indirectPrereqs.length > 0) {
+        html += '<br><br><strong>תנאי קדם עקיפים (שרשרת מלאה):</strong><br>';
+        html += indirectPrereqs.map(p => '⇐ ' + p + ' - ' + (courseNames[p] || '')).join('<br>');
+    }
+
+    // Direct dependents + their prereqs
+    const dependents = [];
+    for (const [c, ps] of Object.entries(directPrereqs)) {
+        if (ps.includes(target)) dependents.push(c);
+    }
+    if (dependents.length > 0) {
+        html += '<br><br><strong>תנאי קדם עבור:</strong>';
+        for (const d of dependents) {
+            html += '<br><span style="color:#e74c3c;font-weight:bold;">→ ' + d + ' - ' + (courseNames[d] || '') + '</span>';
+            const dPrereqs = directPrereqs[d] || [];
+            const otherPrereqs = dPrereqs.filter(p => p !== target);
+            if (otherPrereqs.length > 0) {
+                html += '<br><span style="font-size:11px;color:#888;margin-right:12px;">&nbsp;&nbsp;תנאי קדם נוספים: ' +
+                    otherPrereqs.map(p => p + ' (' + (courseNames[p] || '') + ')').join(', ') + '</span>';
+            }
+        }
+    }
+
+    // Completed toggle
+    const isCompleted = completedCourses.has(target);
+    html += '<div class="completed-toggle"><label class="' + (isCompleted ? 'is-completed' : '') + '">' +
+        '<input type="checkbox" ' + (isCompleted ? 'checked' : '') +
+        ' onchange="toggleCompleted(\'' + target + '\')">' +
+        (isCompleted ? ' \u2705 עברתי קורס זה בהצלחה' : ' סמן כקורס שעברתי') +
+        '</label></div>';
+
+    document.getElementById('info-prereqs').innerHTML = html;
+    panel.style.display = 'block';
+}
+
+// ---- Event Handlers ----
+function pinToggle(course) {
+    if (pinnedCourses.has(course)) {
+        pinnedCourses.delete(course);
+    } else {
+        pinnedCourses.add(course);
+    }
+    render();
+}
+
+function hoverOn(course) {
+    hoveredCourse = course;
+    render();
+}
+
+function hoverOff(course) {
+    if (hoveredCourse === course) {
+        hoveredCourse = null;
+        render();
+    }
+}
+
+function clearAllPins() {
+    pinnedCourses.clear();
+    render();
+}
+
+function toggleCompleted(course) {
+    if (completedCourses.has(course)) {
+        completedCourses.delete(course);
+    } else {
+        completedCourses.add(course);
+    }
+    render();
+    updateCompletedPanel();
+}
+
+function buildCompletedPanel() {
+    const body = document.getElementById('completed-panel-body');
+    // Sort courses by level (y position) then by code
+    const levelOrder = {};
+    document.querySelectorAll('.course-node').forEach(n => {
+        const c = n.dataset.course;
+        const rect = n.querySelector('rect');
+        const y = parseFloat(rect.getAttribute('y'));
+        levelOrder[c] = y;
+    });
+    const sortedCourses = Object.keys(courseNames).sort((a, b) => {
+        const yDiff = (levelOrder[a] || 0) - (levelOrder[b] || 0);
+        if (yDiff !== 0) return yDiff;
+        return a.localeCompare(b);
+    });
+
+    body.innerHTML = '';
+    for (const c of sortedCourses) {
+        const div = document.createElement('div');
+        div.className = 'completed-panel-item' + (completedCourses.has(c) ? ' is-done' : '');
+        div.id = 'cp-item-' + c;
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = completedCourses.has(c);
+        cb.onchange = () => toggleCompleted(c);
+        const code = document.createElement('span');
+        code.className = 'cp-code';
+        code.textContent = c;
+        const name = document.createElement('span');
+        name.className = 'cp-name';
+        name.textContent = courseNames[c] || '';
+        div.appendChild(cb);
+        div.appendChild(code);
+        div.appendChild(name);
+        div.onclick = (e) => { if (e.target !== cb) { cb.checked = !cb.checked; toggleCompleted(c); } };
+        body.appendChild(div);
+    }
+}
+
+function updateCompletedPanel() {
+    const count = completedCourses.size;
+    const total = Object.keys(courseNames).length;
+    document.getElementById('completed-counter').textContent = count + '/' + total;
+    document.querySelectorAll('.completed-panel-item').forEach(item => {
+        const c = item.id.replace('cp-item-', '');
+        const cb = item.querySelector('input[type="checkbox"]');
+        const isDone = completedCourses.has(c);
+        cb.checked = isDone;
+        item.className = 'completed-panel-item' + (isDone ? ' is-done' : '');
+    });
+}
+
+function toggleCompletedPanel() {
+    const panel = document.getElementById('completed-panel');
+    const toggle = document.getElementById('completed-toggle');
+    panel.classList.toggle('collapsed');
+    toggle.textContent = panel.classList.contains('collapsed') ? '\u25C0' : '\u25BC';
+}
+
+function updateFilters() {
+    activeFilters.clear();
+    if (document.getElementById('filter-a').checked) activeFilters.add('\u05D0');
+    if (document.getElementById('filter-b').checked) activeFilters.add('\u05D1');
+    if (document.getElementById('filter-c').checked) activeFilters.add('\u05D2');
+    render();
+}
+
+function exportHTML() {
+    const completedArr = [...completedCourses].map(c => '"' + c + '"').join(', ');
+    let html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+    // Replace the empty completedCourses initialization with the current state
+    html = html.replace(
+        'const completedCourses = new Set();',
+        'const completedCourses = new Set([' + completedArr + ']);'
+    );
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'course_flowchart_' + new Date().toISOString().slice(0, 10) + '.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// ---- Critical Paths ----
+function selectPath(idx) {
+    // Toggle: click same path again to deselect
+    if (activeCriticalPath === idx) {
+        activeCriticalPath = -1;
+    } else {
+        activeCriticalPath = idx;
+    }
+    // Update active class on items
+    document.querySelectorAll('.path-item').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.pathIdx) === activeCriticalPath);
+    });
+    render();
+}
+
+function togglePathsPanel() {
+    const panel = document.getElementById('paths-panel');
+    const toggle = document.getElementById('paths-toggle');
+    panel.classList.toggle('collapsed');
+    toggle.textContent = panel.classList.contains('collapsed') ? '◀' : '▼';
+}
+
+// ---- Zoom & Pan ----
+const SVG_WIDTH = 2340;
+const SVG_HEIGHT = 910;
+
+let scale = 1;
+let panX = 0;
+let panY = 0;
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let panStartX = 0;
+let panStartY = 0;
+
+const container = document.getElementById('chart-container');
+const svg = document.getElementById('flowchart-svg');
+
+function applyTransform() {
+    svg.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    document.getElementById('zoom-level').textContent = Math.round(scale * 100) + '%';
+}
+
+function zoomIn() {
+    scale = Math.min(scale * 1.2, 3);
+    applyTransform();
+}
+
+function zoomOut() {
+    scale = Math.max(scale / 1.2, 0.15);
+    applyTransform();
+}
+
+function zoomReset() {
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    const sx = cw / SVG_WIDTH;
+    const sy = ch / SVG_HEIGHT;
+    scale = Math.min(sx, sy, 1) * 0.95;
+    panX = (cw - SVG_WIDTH * scale) / 2;
+    panY = 10;
+    applyTransform();
+}
+
+// Mouse wheel zoom
+container.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = container.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const prevScale = scale;
+
+    if (e.deltaY < 0) {
+        scale = Math.min(scale * 1.1, 3);
+    } else {
+        scale = Math.max(scale / 1.1, 0.15);
+    }
+
+    // Zoom toward mouse position
+    const ratio = scale / prevScale;
+    panX = mouseX - ratio * (mouseX - panX);
+    panY = mouseY - ratio * (mouseY - panY);
+
+    applyTransform();
+}, { passive: false });
+
+// Pan with mouse drag
+container.addEventListener('mousedown', (e) => {
+    // Only start drag if clicking on empty area (not on a node)
+    if (e.target.closest('.course-node')) return;
+    isDragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    panStartX = panX;
+    panStartY = panY;
+    container.classList.add('dragging');
+    e.preventDefault();
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    panX = panStartX + (e.clientX - dragStartX);
+    panY = panStartY + (e.clientY - dragStartY);
+    applyTransform();
+});
+
+window.addEventListener('mouseup', () => {
+    if (isDragging) {
+        isDragging = false;
+        container.classList.remove('dragging');
+    }
+});
+
+// Touch support for mobile
+let lastTouchDist = null;
+container.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1 && !e.target.closest('.course-node')) {
+        isDragging = true;
+        dragStartX = e.touches[0].clientX;
+        dragStartY = e.touches[0].clientY;
+        panStartX = panX;
+        panStartY = panY;
+    }
+    if (e.touches.length === 2) {
+        isDragging = false;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastTouchDist = Math.hypot(dx, dy);
+    }
+}, { passive: true });
+
+container.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 1 && isDragging) {
+        panX = panStartX + (e.touches[0].clientX - dragStartX);
+        panY = panStartY + (e.touches[0].clientY - dragStartY);
+        applyTransform();
+        e.preventDefault();
+    }
+    if (e.touches.length === 2 && lastTouchDist) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.hypot(dx, dy);
+        const ratio = dist / lastTouchDist;
+        scale = Math.min(Math.max(scale * ratio, 0.15), 3);
+        lastTouchDist = dist;
+        applyTransform();
+        e.preventDefault();
+    }
+}, { passive: false });
+
+container.addEventListener('touchend', () => {
+    isDragging = false;
+    lastTouchDist = null;
+});
+
+// Fit to window on load
+window.addEventListener('load', () => { zoomReset(); buildCompletedPanel(); render(); });
+window.addEventListener('resize', zoomReset);
+</script>
+</body>
+</html>
